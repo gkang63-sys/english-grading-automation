@@ -6,6 +6,8 @@
 구글 문서로 작성 → 폼에 파일 업로드 → 제미나이(루브릭 채점) → 피드백 문서 생성 → 교사 검토 → 문서 공유 + 메일
 ```
 
+**발표 자료:** [두 업무 앱 제작기 (22장)](https://gkang63-sys.github.io/english-grading-automation/presentation.html) — ← → 로 넘김, N 발표자 메모, F 전체 화면
+
 ## 가장 쉬운 시작: 템플릿 사본 만들기
 
 **[템플릿 사본 만들기](https://docs.google.com/spreadsheets/d/17wZTxVokPcSDoeyFufnO5zshnAPKFpptvZc3A29z4-4/copy)** 링크를 열고 "사본 만들기"를 누르면, 코드가 들어 있는 스프레드시트가 내 드라이브에 생깁니다. 그다음:
