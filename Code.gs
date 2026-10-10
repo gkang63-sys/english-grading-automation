@@ -480,7 +480,7 @@ function sendApprovedFeedback() {
   if (!targets.length) return ui.alert("[상태]가 '승인'인 행이 없습니다.\n피드백 문서를 검토하고(필요하면 문서를 직접 고치고) '승인'으로 바꿔 주세요.");
 
   const ok = ui.alert('피드백 보내기',
-    `${targets.length}명에게 피드백 문서를 '보기 권한'으로 공유하고, 문서 링크를 메일로 보냅니다. 계속할까요?`, ui.ButtonSet.YES_NO);
+    `${targets.length}명에게 피드백을 보냅니다.\n피드백 문서를 PDF로 첨부하고, 구글 계정인 주소에는 문서도 '보기 권한'으로 공유합니다. 계속할까요?`, ui.ButtonSet.YES_NO);
   if (ok !== ui.Button.YES) return;
 
   const rubric = readRubric_();
@@ -491,15 +491,25 @@ function sendApprovedFeedback() {
     const score = sheet.getRange(row, cols.score).getValue();
     const url = docUrl_(sheet, row, cols);
     try {
-      shareQuietly_((url.match(/[-\w]{25,}/) || [])[0], email);
+      const fileId = (url.match(/[-\w]{25,}/) || [])[0];
+      if (!fileId) throw new Error('피드백 문서 링크가 없습니다. 먼저 채점하세요.');
+      // 구글 계정이 아닌 주소(hanmail·hotmail 등)는 공유가 안 되므로 PDF 첨부만으로 보냄
+      let shared = true;
+      try { shareQuietly_(fileId, email); } catch (e) { shared = false; }
+      const pdf = DriveApp.getFileById(fileId).getAs(MimeType.PDF).setName(`Feedback_${name || 'student'}.pdf`);
       MailApp.sendEmail({
         to: email,
         subject: `[Feedback] ${rubric.title}`,
         body: `Hi ${name},\n\nYour feedback for "${rubric.title}" is ready.\n` +
-          `Score: ${score} / ${rubric.max}\n\nOpen your feedback document:\n${url}\n\n` +
-          '(Open it while signed in to the Google account you used to submit.)',
+          `Score: ${score} / ${rubric.max}\n\nYour feedback document is attached as a PDF.` +
+          (shared ? `\nYou can also open it online:\n${url}\n(Open it while signed in to the Google account you used to submit.)` : ''),
+        attachments: [pdf],
       });
       sheet.getRange(row, cols.status).setValue(STATUS.SENT);
+      if (!shared) {
+        const c = sheet.getRange(row, cols.check);
+        c.setValue([c.getValue(), '구글 계정이 아닌 주소라 문서 공유 없이 PDF 첨부로만 보냄'].filter(String).join('\n'));
+      }
       sent++;
     } catch (err) {
       sheet.getRange(row, cols.check).setValue('발송 실패: ' + err.message);
@@ -511,6 +521,8 @@ function sendApprovedFeedback() {
 /** 알림 메일 없이 보기 권한만 줌 (안내 메일은 우리가 따로 보냄) */
 function shareQuietly_(fileId, email) {
   if (!fileId) throw new Error('피드백 문서 링크가 없습니다. 먼저 채점하세요.');
+  const owner = DriveApp.getFileById(fileId).getOwner();
+  if (owner && owner.getEmail().toLowerCase() === email.toLowerCase()) return; // 문서 주인(교사 본인)에게는 공유할 필요 없음
   const res = UrlFetchApp.fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=false&supportsAllDrives=true`, {
       method: 'post',

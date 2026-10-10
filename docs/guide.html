@@ -116,6 +116,7 @@ dd{margin:.15rem 0 0;color:var(--muted)}
       <ul>
         <li><span class="menu">③ 과제 제출 폼 만들기</span> → 폼이 자동으로 만들어지고 이 시트에 연결됩니다.</li>
         <li><b>파일 업로드 질문은 한 번만 직접 추가</b>합니다(구글이 코드로 만들지 못하게 막아 둠). 폼 편집 → ⊕ → 유형 “파일 업로드” → 제목 <b>대본 파일 (Script file)</b> → 문서·PDF만 허용, 1개, 10MB.</li>
+        <li><b>파일 업로드 질문은 한 번만 직접 추가</b>합니다(구글이 코드로 만들지 못하게 막아 둠). 폼 편집 → ⊕ → 유형 “파일 업로드” → 제목 <b>대본 파일 (Script file)</b> → 문서·PDF만 허용, 1개, 10MB.</li>
         <li>창에 나온 <b>학생용 링크</b>를 Classroom이나 JNUclass에 붙여넣습니다.</li>
         <li>시트에 “설문지 응답 시트1”이 새로 생깁니다. 학생 제출물은 여기에 쌓입니다.</li>
       </ul>
@@ -169,6 +170,19 @@ dd{margin:.15rem 0 0;color:var(--muted)}
       <tr><td>피드백 문서</td><td>학생별 피드백 구글 문서 링크 (“피드백 문서 - 과제명” 폴더에 저장)</td></tr>
       <tr><td>확인 사항</td><td>제출 형식, 원문 대조 결과, 제미나이가 남긴 확인 요청</td></tr>
       <tr><td>상태</td><td>검토 대기 → 승인 → 발송 완료 (오류가 나면 “오류”)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>피드백 문서 구성</h2>
+  <p>Claude 채점 스킬의 학생별 피드백 형식을 구글 문서로 옮겼습니다. 영어로 쓰고, 다른 학생과 비교하지 않습니다.</p>
+  <div class="tbl" style="margin-top:.6rem"><table>
+    <thead><tr><th>부분</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td>Instructor Comment</td><td>과제명, 이름·학번·단어 수, 점수, 한 문단 요약</td></tr>
+      <tr><td>루브릭 표</td><td>4개 항목 → Script subtotal → 별도 감점 → Total</td></tr>
+      <tr><td>Comments</td><td>잘된 점(학생 문장 인용) 한 문단, 고칠 점(대안과 함께) 한 문단. 문단은 들여쓰기로만 구분</td></tr>
+      <tr><td>What changed, and why</td><td>수정한 곳과 이유 목록</td></tr>
+      <tr><td>Revised Script</td><td>학생 원문에 표시만 얹음: <b>굵은 파란 글씨</b> = 고친 말, 취소선 = 지울 말. 원문에 없는 내용은 지어내지 않고 빈칸(______)으로</td></tr>
     </tbody>
   </table></div>
 
@@ -580,8 +594,12 @@ function verify_(original, r) {
     checks.push('수정 대본에서 표시를 걷어 낸 글이 원문과 다릅니다. 피드백 문서의 Revised Script를 직접 확인하세요.');
   }
   const text = [r.summary, r.well, r.improve].concat((r.items || []).map(i =&gt; i.reason)).join(' ');
-  const quotes = (text.match(/["“]([^"”]{8,})["”]/g) || []).map(q =&gt; q.slice(1, -1));
-  const bad = quotes.filter(q =&gt; /[a-z]/i.test(q) &amp;&amp; !src.includes(norm(q)));
+  // 따옴표는 앞에서부터 짝지어 꺼냄. "원문 → 고친 말" 꼴이면 화살표 앞(원문 인용)만 대조
+  const quotes = [];
+  const re = /["“]([^"”]*)["”]/g;
+  let m;
+  while ((m = re.exec(text))) quotes.push(m[1].split('→')[0].trim());
+  const bad = quotes.filter(q =&gt; q.length &gt;= 8 &amp;&amp; /[a-z]/i.test(q) &amp;&amp; !src.includes(norm(q)));
   if (bad.length) checks.push('원문에 없는 인용: ' + bad.slice(0, 3).map(q =&gt; `"${q}"`).join(', '));
   return checks;
 }
@@ -589,7 +607,7 @@ function verify_(original, r) {
 // ───────────────────────── 피드백 문서 ─────────────────────────
 
 function makeFeedbackDoc_(f) {
-  const NAVY = '#1F3864', BLUE = '#2E75B6', GRAY = '#666666';
+  const NAVY = '#1F3864', BLUE = '#2E75B6', GRAY = '#666666', INK = '#222222';
   const doc = DocumentApp.create(`Feedback_${f.name || 'student'}_${f.rubric.title}`.slice(0, 120));
   const body = doc.getBody();
   body.setMarginLeft(64).setMarginRight(64);
@@ -600,15 +618,12 @@ function makeFeedbackDoc_(f) {
     if (o.first) p.setText(text); // Paragraph.setText()는 값을 돌려주지 않으므로 따로 호출
     p.setSpacingBefore(o.before || 0).setSpacingAfter(o.after === undefined ? 6 : o.after);
     if (o.indent) p.setIndentFirstLine(28);
-    if (text) {
-      const t = p.editAsText();
-      if (o.size) t.setFontSize(o.size);
-      if (o.bold) t.setBold(true);
-      if (o.italic) t.setItalic(true);
-      if (o.color) t.setForegroundColor(o.color);
-    }
+    // 구글 문서는 앞 문단 서식을 이어받으므로 매번 서식을 모두 다시 지정
+    if (text) plain(p.editAsText(), o);
     return p;
   };
+  const plain = (t, o) =&gt; t.setFontSize(o.size || 11).setBold(!!o.bold).setItalic(!!o.italic)
+    .setStrikethrough(!!o.strike).setForegroundColor(o.color || INK);
   const heading = text =&gt; para(text, { size: 13, bold: true, color: NAVY, before: 14, after: 6 });
 
   para(f.rubric.title, { first: true, size: 9, color: BLUE, after: 2 });
@@ -643,19 +658,23 @@ function makeFeedbackDoc_(f) {
 
   if ((f.r.changes || []).length) {
     heading('What changed, and why');
-    f.r.changes.forEach(c =&gt; body.appendListItem(String(c)).setGlyphType(DocumentApp.GlyphType.BULLET).setSpacingAfter(2));
+    f.r.changes.forEach(c =&gt; {
+      const li = body.appendListItem(String(c)).setGlyphType(DocumentApp.GlyphType.BULLET).setSpacingBefore(0).setSpacingAfter(2);
+      plain(li.editAsText(), {});
+    });
   }
 
   heading('Revised Script');
   para('Bold blue = added or changed words · Strikethrough = words to remove. ' +
     'Each paragraph begins with an indent, with no blank line between paragraphs.', { size: 9, italic: true, color: GRAY, after: 6 });
   (f.r.revised || []).forEach(segs =&gt; {
-    const p = body.appendParagraph('').setIndentFirstLine(28).setSpacingAfter(0);
+    const p = body.appendParagraph('').setIndentFirstLine(28).setSpacingBefore(0).setSpacingAfter(0);
     (segs || []).forEach(s =&gt; {
       if (!s.t) return;
       const t = p.appendText(String(s.t));
-      if (s.k === 'add') t.setBold(true).setForegroundColor(BLUE);
-      else if (s.k === 'del') t.setStrikethrough(true).setForegroundColor('#999999');
+      if (s.k === 'add') plain(t, { bold: true, color: BLUE });
+      else if (s.k === 'del') plain(t, { strike: true, color: '#999999' });
+      else plain(t, {});
     });
   });
   para(`Length: ${f.words} words (script body only).`, { size: 9, color: GRAY, before: 10 });
@@ -683,7 +702,7 @@ function sendApprovedFeedback() {
   if (!targets.length) return ui.alert("[상태]가 '승인'인 행이 없습니다.\n피드백 문서를 검토하고(필요하면 문서를 직접 고치고) '승인'으로 바꿔 주세요.");
 
   const ok = ui.alert('피드백 보내기',
-    `${targets.length}명에게 피드백 문서를 '보기 권한'으로 공유하고, 문서 링크를 메일로 보냅니다. 계속할까요?`, ui.ButtonSet.YES_NO);
+    `${targets.length}명에게 피드백을 보냅니다.\n피드백 문서를 PDF로 첨부하고, 구글 계정인 주소에는 문서도 '보기 권한'으로 공유합니다. 계속할까요?`, ui.ButtonSet.YES_NO);
   if (ok !== ui.Button.YES) return;
 
   const rubric = readRubric_();
@@ -694,15 +713,25 @@ function sendApprovedFeedback() {
     const score = sheet.getRange(row, cols.score).getValue();
     const url = docUrl_(sheet, row, cols);
     try {
-      shareQuietly_((url.match(/[-\w]{25,}/) || [])[0], email);
+      const fileId = (url.match(/[-\w]{25,}/) || [])[0];
+      if (!fileId) throw new Error('피드백 문서 링크가 없습니다. 먼저 채점하세요.');
+      // 구글 계정이 아닌 주소(hanmail·hotmail 등)는 공유가 안 되므로 PDF 첨부만으로 보냄
+      let shared = true;
+      try { shareQuietly_(fileId, email); } catch (e) { shared = false; }
+      const pdf = DriveApp.getFileById(fileId).getAs(MimeType.PDF).setName(`Feedback_${name || 'student'}.pdf`);
       MailApp.sendEmail({
         to: email,
         subject: `[Feedback] ${rubric.title}`,
         body: `Hi ${name},\n\nYour feedback for "${rubric.title}" is ready.\n` +
-          `Score: ${score} / ${rubric.max}\n\nOpen your feedback document:\n${url}\n\n` +
-          '(Open it while signed in to the Google account you used to submit.)',
+          `Score: ${score} / ${rubric.max}\n\nYour feedback document is attached as a PDF.` +
+          (shared ? `\nYou can also open it online:\n${url}\n(Open it while signed in to the Google account you used to submit.)` : ''),
+        attachments: [pdf],
       });
       sheet.getRange(row, cols.status).setValue(STATUS.SENT);
+      if (!shared) {
+        const c = sheet.getRange(row, cols.check);
+        c.setValue([c.getValue(), '구글 계정이 아닌 주소라 문서 공유 없이 PDF 첨부로만 보냄'].filter(String).join('\n'));
+      }
       sent++;
     } catch (err) {
       sheet.getRange(row, cols.check).setValue('발송 실패: ' + err.message);
@@ -714,6 +743,8 @@ function sendApprovedFeedback() {
 /** 알림 메일 없이 보기 권한만 줌 (안내 메일은 우리가 따로 보냄) */
 function shareQuietly_(fileId, email) {
   if (!fileId) throw new Error('피드백 문서 링크가 없습니다. 먼저 채점하세요.');
+  const owner = DriveApp.getFileById(fileId).getOwner();
+  if (owner &amp;&amp; owner.getEmail().toLowerCase() === email.toLowerCase()) return; // 문서 주인(교사 본인)에게는 공유할 필요 없음
   const res = UrlFetchApp.fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?sendNotificationEmail=false&amp;supportsAllDrives=true`, {
       method: 'post',
